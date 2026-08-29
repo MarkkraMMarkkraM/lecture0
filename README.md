@@ -30,12 +30,20 @@ Groceries, dining, subscriptions, transport, fees, insurance, etc. Rules live in
 
 ### Google Drive
 
-Your statements folder ID is in `config.example.json`. From Cursor, say **"process my statements"** and I will:
+Your statements folder ID is in `config.example.json` (`drive_statements_folder_id`).
 
-1. List PDFs in your Drive statements folder
+**Sync workflow (local):**
+
+1. List PDFs in your Drive statements folder (via Drive MCP)
 2. Download only new or changed statements (tracked in `statement_manifest.json`)
 3. Run incremental sync into `transactions.csv`
-4. Upload updated CSV, manifest, and summary back to Drive
+
+**Uploading `transactions.csv` back to Drive:** The Google Drive MCP connector only accepts inline `textContent` / `base64Content` in tool arguments — it cannot upload from a local file path. That channel is unreliable for ~87KB CSVs and should not be used. After sync, upload manually:
+
+- Drag `transactions.csv` into your [statements folder](https://drive.google.com/drive/folders/1GebY2TnV4gbWhDfJQu-CV2lRPCH1mr-a), or
+- Use `gdrive`/Drive for desktop/rclone with your own OAuth credentials
+
+A current full parse is committed on the PR branch as `transactions.csv` (597 transactions).
 
 ### Phase 2: Incremental sync
 
