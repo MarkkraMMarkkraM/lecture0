@@ -4,75 +4,24 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import sys
 from pathlib import Path
 
 from statements.categorize import categorize
 from statements.parsers.emirates_nbd import EmiratesNBDParser, ParsedStatement
+from statements.storage import (
+    load_manifest,
+    summarize,
+    update_manifest_with_statement,
+    write_csv,
+    write_manifest,
+)
 
 
 def apply_categories(statement: ParsedStatement) -> None:
     for tx in statement.transactions:
         tx.category = categorize(tx.description)
-
-
-def write_csv(statements: list[ParsedStatement], output_path: Path) -> None:
-    fieldnames = [
-        "source_file",
-        "statement_period_start",
-        "statement_period_end",
-        "statement_date",
-        "transaction_date",
-        "posting_date",
-        "description",
-        "amount_aed",
-        "is_credit",
-        "foreign_amount",
-        "foreign_currency",
-        "category",
-    ]
-
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for statement in statements:
-            for tx in statement.transactions:
-                row = tx.to_row()
-                row.update(
-                    {
-                        "source_file": statement.source_file,
-                        "statement_period_start": statement.statement_period_start,
-                        "statement_period_end": statement.statement_period_end,
-                        "statement_date": statement.statement_date,
-                    }
-                )
-                writer.writerow(row)
-
-
-def summarize(statements: list[ParsedStatement]) -> dict:
-    by_category: dict[str, float] = {}
-    total_spend = 0.0
-    total_credits = 0.0
-    tx_count = 0
-
-    for statement in statements:
-        total_spend += statement.total_spend
-        total_credits += statement.total_credits
-        tx_count += len(statement.transactions)
-        for tx in statement.transactions:
-            if tx.is_credit:
-                continue
-            by_category[tx.category] = by_category.get(tx.category, 0.0) + tx.amount_aed
-
-    return {
-        "statements_processed": len(statements),
-        "transactions": tx_count,
-        "total_spend_aed": round(total_spend, 2),
-        "total_credits_aed": round(total_credits, 2),
-        "spend_by_category_aed": {k: round(v, 2) for k, v in sorted(by_category.items(), key=lambda item: -item[1])},
-    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,6 +41,14 @@ def parse_args() -> argparse.Namespace:
         "--summary",
         help="Optional JSON summary output path",
     )
+    parser.add_argument(
+        "--manifest",
+        help="Optional manifest output path (requires --drive-index)",
+    )
+    parser.add_argument(
+        "--drive-index",
+        help="JSON listing Drive PDFs: [{id, title, modifiedTime}, ...]",
+    )
     return parser.parse_args()
 
 
@@ -109,6 +66,11 @@ def collect_pdfs(paths: list[str]) -> list[Path]:
     return pdfs
 
 
+def load_drive_index_by_id(path: Path) -> dict[str, dict[str, str]]:
+    items = json.loads(path.read_text(encoding="utf-8"))
+    return {item["id"]: item for item in items}
+
+
 def main() -> int:
     args = parse_args()
     pdfs = collect_pdfs(args.paths)
@@ -116,8 +78,16 @@ def main() -> int:
         print("No PDF files found.", file=sys.stderr)
         return 1
 
+    drive_by_id: dict[str, dict[str, str]] = {}
+    if args.drive_index:
+        drive_by_id = load_drive_index_by_id(Path(args.drive_index))
+    elif args.manifest:
+        print("--manifest requires --drive-index", file=sys.stderr)
+        return 1
+
     parser = EmiratesNBDParser()
     statements: list[ParsedStatement] = []
+    manifest = load_manifest(Path(args.manifest)) if args.manifest else None
 
     for pdf_path in pdfs:
         statement = parser.parse(pdf_path)
@@ -127,6 +97,18 @@ def main() -> int:
             f"Parsed {pdf_path.name}: {len(statement.transactions)} transactions "
             f"({statement.statement_period_start} to {statement.statement_period_end})"
         )
+        if manifest is not None:
+            meta = drive_by_id.get(pdf_path.stem)
+            if not meta:
+                print(f"Warning: no Drive metadata for {pdf_path.name}, skipping manifest entry", file=sys.stderr)
+                continue
+            update_manifest_with_statement(
+                manifest,
+                file_id=meta["id"],
+                title=meta["title"],
+                modified_time=meta["modifiedTime"],
+                statement=statement,
+            )
 
     output_path = Path(args.output)
     write_csv(statements, output_path)
@@ -138,6 +120,10 @@ def main() -> int:
     if args.summary:
         Path(args.summary).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print(f"Wrote {args.summary}")
+
+    if manifest is not None and args.manifest:
+        write_manifest(Path(args.manifest), manifest)
+        print(f"Wrote {args.manifest}")
 
     return 0
 
