@@ -1,3 +1,3 @@
-# MarkkraMMarkkraM
+# baseline
 
-Fresh start — this repository is ready for new projects.
+Fresh start — this is the baseline repository for new projects.
