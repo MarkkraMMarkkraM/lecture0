@@ -1,0 +1,9 @@
+# Local statement PDFs and generated outputs (never commit real statements)
+data/
+*.pdf
+transactions.csv
+summary.json
+__pycache__/
+*.pyc
+.venv/
+.python-version
