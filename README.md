@@ -28,18 +28,32 @@ python -m statements.ingest ./data/statements -o transactions.csv --summary summ
 
 Groceries, dining, subscriptions, transport, fees, insurance, etc. Rules live in `statements/categorize.py` and can be extended without AI.
 
-### Google Drive
+### Google Drive (working store)
 
-Your statements folder ID is in `config.example.json`. From Cursor, say **"process my statements"** and I will:
+Canonical folder: [`1GebY2TnV4gbWhDfJQu-CV2lRPCH1mr-a`](https://drive.google.com/drive/folders/1GebY2TnV4gbWhDfJQu-CV2lRPCH1mr-a) (also in `config.example.json`).
 
-1. List PDFs in your Drive statements folder
-2. Download only new or changed statements (tracked in `statement_manifest.json`)
-3. Run incremental sync into `transactions.csv`
-4. Upload updated CSV, manifest, and summary back to Drive
+Keep in that folder:
+
+| File | Role |
+|------|------|
+| `transactions.csv` | Full ledger (one file) |
+| `statement_manifest.json` | Processed PDF ids / modified times |
+| `summary.json` | Aggregated totals |
+| statement PDFs | Source documents |
+
+**Drive MCP cannot carry the CSV.** Google Drive MCP `create_file` only accepts inline `textContent` / `base64Content`. That path truncates around ~16KB and must never be used for the ledger. Do not size-probe, chunk, or IMPORTRANGE-assemble.
+
+**Correct upload path:**
+
+1. Write CSV / manifest / summary to **local disk**.
+2. Upload **from that path**:
+   - Drive web UI file picker (browser) pointed at the local file, or
+   - `python -c "from statements.drive_io import upload_from_disk; print(upload_from_disk('transactions.csv'))"` when `GOOGLE_DRIVE_TOKEN` or Application Default Credentials are already present.
+3. `drive_io.upload_from_disk` uses Drive API `MediaFileUpload` (resumable). If credentials are missing it fails closed — it does not invent tokens or fall back to MCP inline content.
 
 ### Phase 2: Incremental sync
 
-After the initial full parse, new statements are merged automatically:
+Default flow after bootstrap: merge **new/changed** PDFs only.
 
 ```bash
 # Build drive-index from manifest (or from a Drive file listing)
@@ -52,12 +66,23 @@ python -m statements.sync \
   --drive-index drive_index.json \
   --pdf-folder ./downloaded_pdfs \
   --summary summary.json
+
+# Optional: from-disk Drive replace after sync (needs GOOGLE_DRIVE_TOKEN or ADC)
+python -m statements.sync \
+  --csv transactions.csv \
+  --manifest statement_manifest.json \
+  --drive-index drive_index.json \
+  --pdf-folder ./downloaded_pdfs \
+  --summary summary.json \
+  --upload-drive \
+  --drive-csv-file-id <transactions.csv Drive file id>
 ```
 
 **How it works:**
 - `statement_manifest.json` tracks each Drive PDF by file ID and `modifiedTime`
 - Changed or new PDFs are parsed; their statement period replaces any existing rows for that period
 - Unchanged PDFs are skipped entirely (no re-parsing)
+- Rebuild only if no local CSV exists (bootstrap from in-situ Drive PDFs)
 
 ### Next phases
 
