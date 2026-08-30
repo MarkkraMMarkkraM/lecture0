@@ -1,0 +1,36 @@
+---
+description: Emirates NBD statement sync — Drive upload rules (no MCP byte stuffing)
+alwaysApply: true
+---
+
+# ENBD Drive upload rules
+
+## Canonical working store
+
+Google Drive folder `parentId = 1GebY2TnV4gbWhDfJQu-CV2lRPCH1mr-a` is the working store for:
+
+- `transactions.csv` — one full ledger (never split parts)
+- `statement_manifest.json`
+- `summary.json`
+- statement PDFs already in the folder
+
+## Upload path (required)
+
+1. Write CSV / manifest / summary to the **local VM disk** first.
+2. Upload **from that local path** using either:
+   - Drive web UI (browser file picker pointed at the local path), or
+   - `statements.drive_io.upload_from_disk` (Drive API `MediaFileUpload` / resumable) when `GOOGLE_DRIVE_TOKEN` or ADC is already present.
+3. Replace the existing Drive `transactions.csv` in place when updating; do not create `transactions.part*.csv`.
+
+## Hard bans
+
+- **NEVER** pass file contents (raw, base64, gzip, zlib, or otherwise) into Google Drive MCP `create_file` / `update_file` via `textContent`, `base64Content`, or `content`.
+- **NEVER** size-probe MCP upload ceilings (no `probe-*.csv`, `test-*.csv`, `size_test*`, `b64_*`).
+- **NEVER** chunk the ledger and assemble with IMPORTRANGE / Sheets.
+- **NEVER** ask the human to drag-and-drop or manually upload the CSV.
+- **NEVER** invent OAuth tokens, scrape `MCP_AUTH`, or start an OAuth flow unless the user explicitly provides credentials.
+
+## Sync default
+
+- **Incremental sync** (`python -m statements.sync`) is the default: parse new/changed PDFs only, merge into the existing local CSV, write to disk, then from-disk upload/replace.
+- Full rebuild only if no local `transactions.csv` exists (bootstrap from in-situ Drive PDFs via `statements.ingest`).

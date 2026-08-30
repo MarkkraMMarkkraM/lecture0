@@ -10,6 +10,11 @@ from pathlib import Path
 
 from statements.categorize import categorize
 from statements.parsers.emirates_nbd import EmiratesNBDParser, ParsedStatement
+from statements.drive_io import (
+    DRIVE_FOLDER_ID,
+    DriveCredentialsMissing,
+    upload_from_disk,
+)
 from statements.storage import (
     load_manifest,
     merge_statements_into_rows,
@@ -62,6 +67,23 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Report what would be processed without writing outputs",
+    )
+    parser.add_argument(
+        "--upload-drive",
+        action="store_true",
+        help=(
+            "After writing local CSV/manifest, upload from disk via Drive API "
+            "(requires GOOGLE_DRIVE_TOKEN or ADC). Never uses Drive MCP inline content."
+        ),
+    )
+    parser.add_argument(
+        "--drive-folder-id",
+        default=DRIVE_FOLDER_ID,
+        help="Drive parent folder id for from-disk upload",
+    )
+    parser.add_argument(
+        "--drive-csv-file-id",
+        help="Existing Drive transactions.csv file id to replace (optional)",
     )
     return parser.parse_args()
 
@@ -180,6 +202,49 @@ def main() -> int:
     if args.summary:
         Path(args.summary).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print(f"Wrote {args.summary}")
+
+    if args.upload_drive:
+        try:
+            result = upload_from_disk(
+                csv_path,
+                parent_id=args.drive_folder_id,
+                title=csv_path.name,
+                file_id=args.drive_csv_file_id,
+            )
+            print(
+                f"Drive {result.get('action')}: {result.get('name')} "
+                f"id={result.get('id')} size={result.get('size')}"
+            )
+            if args.summary:
+                summary_result = upload_from_disk(
+                    Path(args.summary),
+                    parent_id=args.drive_folder_id,
+                    title=Path(args.summary).name,
+                    mime_type="application/json",
+                )
+                print(
+                    f"Drive {summary_result.get('action')}: {summary_result.get('name')} "
+                    f"id={summary_result.get('id')}"
+                )
+            manifest_result = upload_from_disk(
+                manifest_path,
+                parent_id=args.drive_folder_id,
+                title=manifest_path.name,
+                mime_type="application/json",
+                file_id="16HGkaK6Jdr2r3a-_yhuyW_gIp3Scfwk4",
+            )
+            print(
+                f"Drive {manifest_result.get('action')}: {manifest_result.get('name')} "
+                f"id={manifest_result.get('id')}"
+            )
+        except DriveCredentialsMissing as exc:
+            print(f"Drive upload skipped (no credentials): {exc}", file=sys.stderr)
+            print(
+                "Local files are ready. Upload from disk via Drive web UI file picker "
+                "or retry with GOOGLE_DRIVE_TOKEN / ADC.",
+                file=sys.stderr,
+            )
+            return 2
 
     return 0
 
