@@ -135,6 +135,55 @@ def collect_folder_jobs(
     return collect_pdf_jobs(pdfs, by_title, by_id)
 
 
+def upload_outputs_from_disk(args: argparse.Namespace, csv_path: Path, manifest_path: Path) -> int:
+    """Upload local CSV/manifest/summary via MediaFileUpload. Returns 0 or 2."""
+    try:
+        result = upload_from_disk(
+            csv_path,
+            parent_id=args.drive_folder_id,
+            title=csv_path.name,
+            file_id=args.drive_csv_file_id,
+        )
+        print(
+            f"Drive {result.get('action')}: {result.get('name')} "
+            f"id={result.get('id')} size={result.get('size')}"
+        )
+        if args.summary:
+            summary_path = Path(args.summary)
+            if summary_path.is_file():
+                summary_result = upload_from_disk(
+                    summary_path,
+                    parent_id=args.drive_folder_id,
+                    title=summary_path.name,
+                    mime_type="application/json",
+                )
+                print(
+                    f"Drive {summary_result.get('action')}: {summary_result.get('name')} "
+                    f"id={summary_result.get('id')}"
+                )
+        if manifest_path.is_file():
+            manifest_result = upload_from_disk(
+                manifest_path,
+                parent_id=args.drive_folder_id,
+                title=manifest_path.name,
+                mime_type="application/json",
+                file_id="16HGkaK6Jdr2r3a-_yhuyW_gIp3Scfwk4",
+            )
+            print(
+                f"Drive {manifest_result.get('action')}: {manifest_result.get('name')} "
+                f"id={manifest_result.get('id')}"
+            )
+    except DriveCredentialsMissing as exc:
+        print(f"Drive upload skipped (no credentials): {exc}", file=sys.stderr)
+        print(
+            "Local files are ready. Upload from disk via Drive web UI file picker "
+            "or retry with GOOGLE_DRIVE_TOKEN / ADC.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     csv_path = Path(args.csv)
@@ -165,6 +214,11 @@ def main() -> int:
 
     if not to_process:
         print(f"Nothing to do. {skipped} file(s) already up to date.")
+        if args.upload_drive and not args.dry_run:
+            if not csv_path.is_file():
+                print(f"Cannot upload: local CSV missing at {csv_path}", file=sys.stderr)
+                return 1
+            return upload_outputs_from_disk(args, csv_path, manifest_path)
         return 0
 
     new_statements: list[ParsedStatement] = []
@@ -204,47 +258,7 @@ def main() -> int:
         print(f"Wrote {args.summary}")
 
     if args.upload_drive:
-        try:
-            result = upload_from_disk(
-                csv_path,
-                parent_id=args.drive_folder_id,
-                title=csv_path.name,
-                file_id=args.drive_csv_file_id,
-            )
-            print(
-                f"Drive {result.get('action')}: {result.get('name')} "
-                f"id={result.get('id')} size={result.get('size')}"
-            )
-            if args.summary:
-                summary_result = upload_from_disk(
-                    Path(args.summary),
-                    parent_id=args.drive_folder_id,
-                    title=Path(args.summary).name,
-                    mime_type="application/json",
-                )
-                print(
-                    f"Drive {summary_result.get('action')}: {summary_result.get('name')} "
-                    f"id={summary_result.get('id')}"
-                )
-            manifest_result = upload_from_disk(
-                manifest_path,
-                parent_id=args.drive_folder_id,
-                title=manifest_path.name,
-                mime_type="application/json",
-                file_id="16HGkaK6Jdr2r3a-_yhuyW_gIp3Scfwk4",
-            )
-            print(
-                f"Drive {manifest_result.get('action')}: {manifest_result.get('name')} "
-                f"id={manifest_result.get('id')}"
-            )
-        except DriveCredentialsMissing as exc:
-            print(f"Drive upload skipped (no credentials): {exc}", file=sys.stderr)
-            print(
-                "Local files are ready. Upload from disk via Drive web UI file picker "
-                "or retry with GOOGLE_DRIVE_TOKEN / ADC.",
-                file=sys.stderr,
-            )
-            return 2
+        return upload_outputs_from_disk(args, csv_path, manifest_path)
 
     return 0
 
