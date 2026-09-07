@@ -143,5 +143,8 @@ DMCC / VARA is the path if the desk ever takes external clients or needs UAE ban
 
 ## File map
 
+- `slides-v1.md` — source of the current 3-slide deck.
+- Drive / Slides binary — https://docs.google.com/presentation/d/1wzbEDmgsxFE33hCRkYN2KLvXz4yG3u0h/edit
 - `onchain-credit-desk.md` — original three-slide note + ecosystem ladder + Wintermute/Wildcat proof.
 - `threads-spread-and-otd.md` — this file. Spread arithmetic, engine-as-condition, OTD / offtake, stacked P&L.
+- `README.md` — pack index.
